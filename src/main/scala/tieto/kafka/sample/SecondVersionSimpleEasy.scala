@@ -1,50 +1,47 @@
-package tieto.kafka.sample
-
 import akka.actor.ActorSystem
 import akka.kafka.scaladsl.{Consumer, Producer}
-import akka.kafka.{ConsumerSettings, ProducerMessage, ProducerSettings, Subscriptions}
+import akka.kafka._
 import akka.stream.ActorMaterializer
 import org.apache.kafka.clients.consumer.ConsumerConfig
-import org.apache.kafka.clients.producer.{Producer, ProducerRecord}
+import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.serialization.{ByteArrayDeserializer, ByteArraySerializer, StringDeserializer, StringSerializer}
 
-/**
-  * Created by cfernandes on 2016-09-26.
-  */
 object KafkaConsumer extends App {
 
   implicit val actorSystem = ActorSystem("test-actor-system")
   implicit val streamMaterializer = ActorMaterializer()
   implicit val executionContext = actorSystem.dispatcher
+  implicit var committableOffset : ConsumerMessage.CommittableOffset = committableOffset
   val log = actorSystem.log
 
 
-  // PRODUCER
+  // PRODUCER config
   val producerSettings = ProducerSettings(
     actorSystem,
-    new StringSerializer,
+    new ByteArraySerializer,
     new StringSerializer)
     .withBootstrapServers("localhost:9092")
     .withProperty("auto.create.topics.enable", "true")
 
-
-  // CONSUMER
+  // CONSUMER config
   val consumerSettings = ConsumerSettings(
     system = actorSystem,
     keyDeserializer = new ByteArrayDeserializer,
     valueDeserializer = new StringDeserializer)
     .withBootstrapServers("localhost:9092")
-    .withGroupId("tieto-kafka-sample")
+    .withGroupId("kafka-sample")
     .withProperty(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest")
-  // -----------------------------------------------------------------------//
 
   // ROUTE OF THE APP
-  Consumer.committableSource(consumerSettings, Subscriptions.topics("LineOfWords"))
-    .mapConcat( msg => ) {
+  Consumer.committableSource(consumerSettings,
+    Subscriptions.topics("topic1"))
+    .mapConcat {
+      msg =>
+        committableOffset = msg.committableOffset
+        msg.record.value().split(" ").toList }
+    .map {
       msg => println(s"topic1 -> topic2: $msg")
-        val newMSG = msg.toString.split("\\s+")
-      newMSG.foreach( i => ProducerMessage.Message(new ProducerRecord[String, String]( "SeparatedWords", i), msg.committableOffset))
-      ProducerMessage.Message(new ProducerRecord[String, String]( "SeparatedWords", ), msg.committableOffset)
+        ProducerMessage.Message(new ProducerRecord[Array[Byte], String]( "topic2", msg), committableOffset)
     }
     .runWith(Producer.commitableSink(producerSettings))
 }
